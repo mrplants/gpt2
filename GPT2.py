@@ -55,6 +55,12 @@ class GPT2(nn.Module):
             self.decoder_layer,
             num_layers=num_layers)
         
+        self.create_mask = nn.Transformer(
+            d_model=embed_size,
+            nhead=num_heads,
+            dim_feedforward=forward_expansion*embed_size,
+            dropout=dropout).generate_square_subsequent_mask
+        
         # Final output linear layer
         self.fc_out = nn.Linear(embed_size, vocab_size)
         # Dropout layer for regularization
@@ -76,8 +82,10 @@ class GPT2(nn.Module):
         # Get the batch size and sequence length from the input tensor
         x = x.to(self.device) # Ensure x is on the correct device
         # Check if a mask was provided
-        if mask is not None:
-            mask = mask.to(self.device)  # Ensure mask is on the correct device
+        if mask:
+            mask = self.create_mask(x.size(1),self.device)  # Ensure mask is on the correct device
+        else:
+            mask = None
 
         N, seq_length = x.shape
 
@@ -103,16 +111,3 @@ class GPT2(nn.Module):
         out = self.fc_out(out)
 
         return out
-
-def create_mask(seq_length, device):
-    """Create causal mask for the transformer decoder.
-
-    Args:
-        seq_length: The sequence length.
-        device: The device on which to create the mask.
-        
-    Returns:
-        A causal mask of shape (seq_length, seq_length).
-    """
-    mask = torch.triu(torch.ones((seq_length, seq_length), device=device), diagonal=1)
-    return mask.masked_fill(mask==1, float('-inf')).masked_fill(mask==0, float(0.0))

@@ -3,36 +3,11 @@ from torch.utils.data import DataLoader
 from torch.optim import Adam
 import torch.nn.functional as F
 from AbstractDataset import AbstractDataset, collate_fn
-from GPT2 import GPT2, create_mask
+from GPT2 import GPT2
+from verify import generate_text
+from torch.utils.tensorboard import SummaryWriter
 
-def generate_text(model, start_text, max_length=50):
-    model.eval() # Set the model to evaluation mode
-
-    # Tokenize the starting text
-    encoded_text = dataset.tokenizer.encode(start_text, return_tensors='pt').to(model.device)
-    output_sequence = encoded_text # Initialize the generated text
-
-    # Generate text
-    with torch.no_grad(): # Disable gradient tracking to speed up the generation
-        for _ in range(max_length):
-            # Get the prediction for the next word
-            predictions = model(output_sequence, None)
-            print(predictions.shape)
-            predictions = predictions[:, -1:, :] # Get the last word's prediction
-
-            # Sample from the predictions
-            _, next_word = torch.max(predictions, dim=1) # Greedy decoding
-            print(next_word.shape)
-            next_word = next_word.unsqueeze(0)
-            print(next_word.shape)
-
-            # Concatenate the generated word to the output sequence
-            output_sequence = torch.cat([output_sequence, next_word], dim=1)
-    
-    # Decode the output sequence
-    generated_sequence = dataset.tokenizer.decode(output_sequence[0])
-
-    return generated_sequence
+writer = SummaryWriter()
 
 def train_model(model, dataset, epochs=1, batch_size=64, learning_rate=0.001):
     """Trains the GPT-2 model on the given dataset.
@@ -61,18 +36,14 @@ def train_model(model, dataset, epochs=1, batch_size=64, learning_rate=0.001):
         torch.save(model.state_dict(), f"./checkpoints/model_epoch_{epoch}.pth")
 
         for batch_idx, batch in enumerate(data_loader):
-            print(f"Batch {batch_idx+1} of {len(data_loader)}")
-            # if batch_idx % 50 == 0:
-            #     # Print a generated sentence
-            #     start_text = "The discovery of"
-            #     print(generate_text(model, start_text)+"\n")
+            if batch_idx % 10 == 0:
+                print(f"Batch {batch_idx+1} of {len(data_loader)}")
 
             # Move batch to the device
             batch = batch.to(device)
 
             # Forward pass: get the model's predictions
-            mask = create_mask(batch[:, :-1].size(1), device)
-            outputs = model(batch[:, :-1], mask)
+            outputs = model(batch[:, :-1], mask=True)
 
             # Calculate loss:  Cross-entropy between predicted and actual next token.
             # Note: we flatten the outputs and targets to fit the loss function's input
@@ -81,15 +52,26 @@ def train_model(model, dataset, epochs=1, batch_size=64, learning_rate=0.001):
             # Backward pass:  compute gradient of the loss with respect to model parameters
             loss.backward()
 
+            # Gradient clipping
+            # torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+
             # Perform the optimization step
             optimizer.step()
 
             # Zero the gradients to prevent them from accumulating
             optimizer.zero_grad()
-        
+
+            if batch_idx % 10 == 0:
+                print(f"Loss: {loss.item()}")
+                global_step = epoch * len(data_loader) + batch_idx
+                writer.add_scalar('Training Loss', loss.item(), global_step)
+
         print(f'Finished epoch {epoch+1} of {epochs}, loss={loss.item()}')
+        # Print a generated sentence
+        start_text = "The discovery of"
+        print(generate_text(model, start_text)+"\n")
 
-
+writer.close()
 # Create the dataset
 dataset = AbstractDataset()
 
@@ -105,14 +87,21 @@ MAX_LENGTH = 1024
 # Create the model
 model = GPT2(VOCAB_SIZE, EMBED_SIZE, NUM_LAYERS, NUM_HEADS, FORWARD_EXPANSION, DROPOUT, MAX_LENGTH)
 
+# If there are multiple GPUs available
+if torch.cuda.device_count() > 1:
+    print(f"Using {torch.cuda.device_count()} GPUs for training via DataParallel.")
+    # Use torch.nn.DataParallel to use multiple GPUs in parallel
+    # This will take care of synchronizing the gradients between the replicas
+    # model = torch.nn.DataParallel(model)
+
 def count_parameters(model):
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
 print(f"The model has {count_parameters(model):,} parameters.")
 
 # Training parameters
-EPOCHS = 10
+EPOCHS = 50
 BATCH_SIZE = 4
-LEARNING_RATE = 0.001
+LEARNING_RATE = 0.0001
 
 # Train the model
 train_model(model, dataset, EPOCHS, BATCH_SIZE, LEARNING_RATE)
