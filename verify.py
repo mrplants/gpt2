@@ -20,8 +20,11 @@ def generate_text(model, start_text, max_length=50):
             predictions = model(output_sequence, None)
             predictions = predictions[:, -1:, :] # Get the last word's prediction
 
-            # Sample from the predictions
-            _, next_word = torch.max(predictions, dim=2) # Greedy decoding
+            # # Sample from the predictions
+            # _, next_word = torch.max(predictions, dim=2) # Greedy decoding
+            # Sample from the predictions using termperature and a multinomial distribution
+            predictions = predictions.squeeze(1) / 0.7 # Temperature
+            next_word = torch.multinomial(torch.softmax(predictions, dim=-1), num_samples=1)
 
             # Concatenate the generated word to the output sequence
             output_sequence = torch.cat([output_sequence, next_word], dim=1)
