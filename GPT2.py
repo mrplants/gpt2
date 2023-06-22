@@ -81,11 +81,6 @@ class GPT2(nn.Module):
             The output tensor after passing through the model."""
         # Get the batch size and sequence length from the input tensor
         x = x.to(self.device) # Ensure x is on the correct device
-        # Check if a mask was provided
-        if mask:
-            mask = self.create_mask(x.size(1),self.device)  # Ensure mask is on the correct device
-        else:
-            mask = None
 
         N, seq_length = x.shape
 
